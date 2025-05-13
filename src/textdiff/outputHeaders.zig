@@ -1,32 +1,30 @@
 const std = @import("std");
 const reductions = @import("reductions.zig"){};
 
+pub fn printUsage() void {
+    std.debug.print("usage: outputHeaders <dir> [version]\n", .{});
+    std.debug.print("takes headers from uh_workspace and outputs to <dir>\n", .{});
+    std.debug.print("if version is given, only output lines matching that version (for testing)\n", .{});
+}
+
 pub fn main() !void {
     var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     const arena = arena_allocator.allocator();
 
     var args = try std.process.argsWithAllocator(arena);
-
-    {
-        var i: usize = 0;
-        while (args.skip()) {
-            i += 1;
-        }
-
-        if (i != 2 and i != 3) {
-            std.debug.print("usage: outputHeaders <dir> [version]\n", .{});
-            std.debug.print("takes headers from uh_workspace and outputs to <dir>\n", .{});
-            std.debug.print("if version is given, only output lines matching that version (for testing)\n", .{});
-            return;
-        }
-    }
-
-    args = try std.process.argsWithAllocator(arena);
-    _ = args.skip();
-    const outDir = args.next() orelse return;
+    _ = args.skip(); // process name
+    const outDir = args.next() orelse {
+        printUsage();
+        return;
+    };
     const versionStr = args.next();
 
-    var dir = try std.fs.cwd().openIterableDir("uh_workspace", .{});
+    if (args.next()) |_| {
+        printUsage();
+        return;
+    }
+
+    var dir = try std.fs.cwd().openDir("uh_workspace", .{ .iterate = true });
     defer dir.close();
 
     var walker = try dir.walk(arena);
@@ -46,7 +44,7 @@ pub fn main() !void {
         //std.debug.print("entry: base {s} path {s}\n", .{ entry.basename, entry.path });
 
         // read work-in-progress file into memory
-        var workpath = try std.fs.path.join(arena, &.{ "uh_workspace", entry.path });
+        const workpath = try std.fs.path.join(arena, &.{ "uh_workspace", entry.path });
         var worklines = std.ArrayList([]const u8).init(arena);
         {
             var file = try std.fs.cwd().openFile(workpath, .{});
@@ -65,8 +63,7 @@ pub fn main() !void {
         }
 
         // read work-in-progress sidecar version file into memory
-        var buf = try arena.alloc(u8, 1000);
-        const versionpath = try std.fmt.bufPrint(buf, "{s}{s}", .{ workpath, extra });
+        const versionpath = try std.fmt.allocPrint(arena, "{s}{s}", .{ workpath, extra });
         var versionlines = std.ArrayList([]const u8).init(arena);
         {
             var file = try std.fs.cwd().openFile(versionpath, .{});
@@ -85,7 +82,7 @@ pub fn main() !void {
         }
 
         // make writer to output file that will be our universal header
-        var filepath = try std.fs.path.join(arena, &.{ outDir, entry.path });
+        const filepath = try std.fs.path.join(arena, &.{ outDir, entry.path });
         if (std.fs.path.dirname(filepath)) |dirname| {
             try std.fs.cwd().makePath(dirname);
         }
@@ -179,7 +176,7 @@ pub fn outputIfLine(arena: std.mem.Allocator, writer: anytype, versionline: []co
 
     var replacements = std.ArrayList([]const u8).init(arena);
 
-    inline for (@typeInfo(@TypeOf(reductions)).Struct.fields) |f| {
+    inline for (@typeInfo(@TypeOf(reductions)).@"struct".fields) |f| {
         const field = @field(reductions, f.name);
         var found_all = true;
         for (0..field.len - 1) |i| {

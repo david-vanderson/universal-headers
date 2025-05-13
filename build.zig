@@ -1,6 +1,6 @@
 const std = @import("std");
 
-pub fn build(b: *std.build.Builder) void {
+pub fn build(b: *std.Build) void {
     const target = b.standardTargetOptions(.{});
     const optimize = b.standardOptimizeOption(.{});
 
@@ -31,7 +31,7 @@ pub fn build(b: *std.build.Builder) void {
     } else {
         const addHeaders = b.addExecutable(.{
             .name = "addHeaders",
-            .root_source_file = .{ .path = "src/textdiff/addHeaders.zig" },
+            .root_source_file = b.path("src/textdiff/addHeaders.zig"),
             .target = target,
             .optimize = optimize,
         });
@@ -39,7 +39,7 @@ pub fn build(b: *std.build.Builder) void {
 
         const outputHeaders = b.addExecutable(.{
             .name = "outputHeaders",
-            .root_source_file = .{ .path = "src/textdiff/outputHeaders.zig" },
+            .root_source_file = b.path("src/textdiff/outputHeaders.zig"),
             .target = target,
             .optimize = optimize,
         });
@@ -47,7 +47,7 @@ pub fn build(b: *std.build.Builder) void {
 
         const testHeaders = b.addExecutable(.{
             .name = "testHeaders",
-            .root_source_file = .{ .path = "src/textdiff/testHeaders.zig" },
+            .root_source_file = b.path("src/textdiff/testHeaders.zig"),
             .target = target,
             .optimize = optimize,
         });

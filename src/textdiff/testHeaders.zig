@@ -3,6 +3,12 @@ const reductions = @import("reductions.zig"){};
 
 const debug = false;
 
+pub fn printUsage() void {
+    std.debug.print("usage: testHeaders <dir> <outdir> <version>\n", .{});
+    std.debug.print("takes universal headers from <dir>, partially evaluates, and outputs to <outdir>\n", .{});
+    std.debug.print("output files should match originals from that version (maybe whitespace differences)\n", .{});
+}
+
 // This utility goes through universal headers and only evaluates the #if blocks that we added to make them universal
 // - what comes out can be diffed against the original headers for testing
 pub fn main() !void {
@@ -10,28 +16,26 @@ pub fn main() !void {
     const arena = arena_allocator.allocator();
 
     var args = try std.process.argsWithAllocator(arena);
+    _ = args.skip(); // process name
+    const inDir = args.next() orelse {
+        printUsage();
+        return;
+    };
+    const outDir = args.next() orelse {
+        printUsage();
+        return;
+    };
+    const versionStr = std.fs.path.basename(args.next() orelse {
+        printUsage();
+        return;
+    });
 
-    {
-        var i: usize = 0;
-        while (args.skip()) {
-            i += 1;
-        }
-
-        if (i != 4) {
-            std.debug.print("usage: testHeaders <dir> <outdir> <version>\n", .{});
-            std.debug.print("takes universal headers from <dir>, partially evaluates, and outputs to <outdir>\n", .{});
-            std.debug.print("output files should match originals from that version (maybe whitespace differences)\n", .{});
-            return;
-        }
+    if (args.next()) |_| {
+        printUsage();
+        return;
     }
 
-    args = try std.process.argsWithAllocator(arena);
-    _ = args.skip();
-    const inDir = args.next() orelse return;
-    const outDir = args.next() orelse return;
-    const versionStr = std.fs.path.basename(args.next() orelse return);
-
-    var dir = try std.fs.cwd().openIterableDir(inDir, .{});
+    var dir = try std.fs.cwd().openDir(inDir, .{ .iterate = true });
     defer dir.close();
 
     var walker = try dir.walk(arena);
@@ -45,7 +49,7 @@ pub fn main() !void {
         //std.debug.print("entry: base {s} path {s}\n", .{ entry.basename, entry.path });
 
         // read universal header into memory
-        var inpath = try std.fs.path.join(arena, &.{ inDir, entry.path });
+        const inpath = try std.fs.path.join(arena, &.{ inDir, entry.path });
         var inlines = std.ArrayList([]const u8).init(arena);
         {
             var file = try std.fs.cwd().openFile(inpath, .{});
@@ -63,7 +67,7 @@ pub fn main() !void {
             }
         }
 
-        var outpath = try std.fs.path.join(arena, &.{ outDir, entry.path });
+        const outpath = try std.fs.path.join(arena, &.{ outDir, entry.path });
         if (std.fs.path.dirname(outpath)) |dirname| {
             try std.fs.cwd().makePath(dirname);
         }
@@ -80,7 +84,7 @@ pub fn main() !void {
         var in_comment: bool = false;
         for (inlines.items) |line| {
             if (debug) std.debug.print("{d} {s}\n", .{ outputing.items.len, line });
-            var com = in_comment;
+            const com = in_comment;
             if (!in_comment and std.mem.indexOf(u8, line, "/*") != null and std.mem.indexOf(u8, line, "*/") == null) {
                 in_comment = true;
             } else if (in_comment and std.mem.indexOf(u8, line, "/*") == null and std.mem.indexOf(u8, line, "*/") != null) {
@@ -100,7 +104,7 @@ pub fn main() !void {
                         } else {
                             // look for versionStr in each reduction, and see
                             // if that reduction matches
-                            inline for (@typeInfo(@TypeOf(reductions)).Struct.fields) |f| blk: {
+                            inline for (@typeInfo(@TypeOf(reductions)).@"struct".fields) |f| blk: {
                                 const field = @field(reductions, f.name);
                                 for (0..field.len - 1) |i| {
                                     if (std.mem.eql(u8, versionStr, field[i])) {

@@ -2,39 +2,34 @@ const std = @import("std");
 
 const debug = false;
 
+pub fn printUsage() void {
+    std.debug.print("usage: addHeaders <dir>\n", .{});
+    std.debug.print("normalizes headers from <dir> into uh_norm/<dir>\n", .{});
+    std.debug.print("adds headers from uh_norm/<dir> into uh_workspace\n", .{});
+}
+
 pub fn main() !void {
     var arena_allocator = std.heap.ArenaAllocator.init(std.heap.page_allocator);
     const arena = arena_allocator.allocator();
 
     var args = try std.process.argsWithAllocator(arena);
+    _ = args.skip(); // process name
+    const headerDir = args.next() orelse {
+        printUsage();
+        return;
+    };
 
-    {
-        var i: usize = 0;
-        while (args.skip()) {
-            i += 1;
-        }
-
-        if (i != 2) {
-            std.debug.print("usage: addHeaders <dir>\n", .{});
-            std.debug.print("normalizes headers from <dir> into uh_norm/<dir>\n", .{});
-            std.debug.print("adds headers from uh_norm/<dir> into uh_workspace\n", .{});
-            return;
-        }
+    if (args.next()) |_| {
+        printUsage();
+        return;
     }
 
-    args = try std.process.argsWithAllocator(arena);
-    _ = args.skip();
-    const headerDir = args.next() orelse return;
-
-    var buf = try arena.alloc(u8, 1000);
-
-    const normalized_dir = try std.fmt.bufPrint(buf, "uh_norm/{s}", .{std.fs.path.basename(headerDir)});
+    const normalized_dir = try std.fmt.allocPrint(arena, "uh_norm/{s}", .{std.fs.path.basename(headerDir)});
     std.fs.cwd().makePath(normalized_dir) catch {};
 
-    buf = try arena.alloc(u8, 1000);
-    const versionStr = try std.fmt.bufPrint(buf, "{s}|", .{std.fs.path.basename(headerDir)});
+    const versionStr = try std.fmt.allocPrint(arena, "{s}|", .{std.fs.path.basename(headerDir)});
 
-    var dir = try std.fs.cwd().openIterableDir(headerDir, .{});
+    var dir = try std.fs.cwd().openDir(headerDir, .{ .iterate = true });
     defer dir.close();
 
     std.fs.cwd().makeDir("uh_workspace") catch {};
@@ -54,9 +49,9 @@ pub fn main() !void {
         // file extension for our sidecar version information
         const extra = ".uhversion.txt";
 
-        var filepath = try std.fs.path.join(arena, &.{ headerDir, entry.path });
-        var workpath = try std.fs.path.join(arena, &.{ "uh_workspace", entry.path });
-        var normalized_path = try std.fs.path.join(arena, &.{ normalized_dir, entry.path });
+        const filepath = try std.fs.path.join(arena, &.{ headerDir, entry.path });
+        const workpath = try std.fs.path.join(arena, &.{ "uh_workspace", entry.path });
+        const normalized_path = try std.fs.path.join(arena, &.{ normalized_dir, entry.path });
 
         // read all the lines of our work-in-progress file
         var worklines = std.ArrayList([]const u8).init(arena);
@@ -83,8 +78,7 @@ pub fn main() !void {
         }
 
         // read all the lines of our work-in-progress sidecar version file
-        buf = try arena.alloc(u8, 1000);
-        const versionpath = try std.fmt.bufPrint(buf, "{s}{s}", .{ workpath, extra });
+        const versionpath = try std.fmt.allocPrint(arena, "{s}{s}", .{ workpath, extra });
         var versionlines = std.ArrayList([]const u8).init(arena);
         {
             var file = try std.fs.cwd().createFile(versionpath, .{ .read = true, .truncate = false });
@@ -154,7 +148,7 @@ pub fn main() !void {
                 var it = std.mem.splitScalar(u8, contents, '\n');
                 while (it.next()) |line| {
                     // normalize whitespace (replace tabs with spaces)
-                    buf = try arena.alloc(u8, line.len);
+                    const buf = try arena.alloc(u8, line.len);
                     _ = std.mem.replace(u8, line, "\t", " ", buf);
 
                     // filter out empty lines
@@ -204,13 +198,13 @@ pub fn main() !void {
         //std.debug.print("filepath: {s}, workpath: {s}\n", .{ filepath, workpath });
 
         // run diff and get the output
-        var diff_stdout = std.ArrayList(u8).init(arena);
-        var diff_stderr = std.ArrayList(u8).init(arena);
+        var diff_stdout: std.ArrayListUnmanaged(u8) = .empty;
+        var diff_stderr: std.ArrayListUnmanaged(u8) = .empty;
         var diff_child = std.process.Child.init(&.{ "diff", "-wdN", workpath, "uh_workfile" }, arena);
         diff_child.stdout_behavior = .Pipe;
         diff_child.stderr_behavior = .Pipe;
         try diff_child.spawn();
-        try diff_child.collectOutput(&diff_stdout, &diff_stderr, 20 * 1024 * 1024);
+        try diff_child.collectOutput(arena, &diff_stdout, &diff_stderr, 20 * 1024 * 1024);
         _ = try diff_child.wait();
 
         //std.debug.print("diff says:\n{s}\n", .{diff_stdout.items});
@@ -255,8 +249,7 @@ pub fn main() !void {
                 // from line_adj to addafter, the lines were the same, so add the version
                 for (last_line..@intCast(line_adj + @as(isize, @intCast(addafter)))) |i| {
                     const old = versionlines.items[i];
-                    buf = try arena.alloc(u8, old.len + versionStr.len);
-                    versionlines.items[i] = try std.fmt.bufPrint(buf, "{s}{s}", .{ old, versionStr });
+                    versionlines.items[i] = try std.fmt.allocPrint(arena, "{s}{s}", .{ old, versionStr });
                 }
 
                 // add lines start..end from new header after line addafter
@@ -303,8 +296,7 @@ pub fn main() !void {
                 // from line_adj to start1, the lines were the same, so add the version
                 for (last_line..@intCast(line_adj + @as(isize, @intCast(start1)))) |i| {
                     const old = versionlines.items[i];
-                    buf = try arena.alloc(u8, old.len + versionStr.len);
-                    versionlines.items[i] = try std.fmt.bufPrint(buf, "{s}{s}", .{ old, versionStr });
+                    versionlines.items[i] = try std.fmt.allocPrint(arena, "{s}{s}", .{ old, versionStr });
                 }
 
                 const where: usize = @intCast(line_adj + @as(isize, @intCast(end1)));
@@ -335,8 +327,7 @@ pub fn main() !void {
 
                 for (last_line..@intCast(line_adj + @as(isize, @intCast(start)))) |i| {
                     const old = versionlines.items[i];
-                    buf = try arena.alloc(u8, old.len + versionStr.len);
-                    versionlines.items[i] = try std.fmt.bufPrint(buf, "{s}{s}", .{ old, versionStr });
+                    versionlines.items[i] = try std.fmt.allocPrint(arena, "{s}{s}", .{ old, versionStr });
                 }
 
                 // we just skip over the lines
@@ -352,8 +343,7 @@ pub fn main() !void {
         //std.debug.print("last_line {d} {d}\n", .{ last_line, versionlines.items.len });
         for (last_line..versionlines.items.len) |i| {
             const old = versionlines.items[i];
-            buf = try arena.alloc(u8, old.len + versionStr.len);
-            versionlines.items[i] = try std.fmt.bufPrint(buf, "{s}{s}", .{ old, versionStr });
+            versionlines.items[i] = try std.fmt.allocPrint(arena, "{s}{s}", .{ old, versionStr });
         }
 
         // write out work-in-progress file back to disk
@@ -392,7 +382,7 @@ pub fn addContext(arena: std.mem.Allocator, lines: *std.ArrayList([]const u8)) !
 
         var pop_context: bool = false;
 
-        var com = in_comment;
+        const com = in_comment;
         if (!in_comment and std.mem.indexOf(u8, line, "/*") != null and std.mem.indexOf(u8, line, "*/") == null) {
             in_comment = true;
         } else if (in_comment and std.mem.indexOf(u8, line, "/*") == null and std.mem.indexOf(u8, line, "*/") != null) {
@@ -445,8 +435,7 @@ pub fn addContext(arena: std.mem.Allocator, lines: *std.ArrayList([]const u8)) !
             try seen_contexts.append(ctx);
         }
 
-        var buf = try arena.alloc(u8, 9 + line.len);
-        lines.items[i] = try std.fmt.bufPrint(buf, "{x:0<8} {s}", .{ context.items[context.items.len - 1], line });
+        lines.items[i] = try std.fmt.allocPrint(arena, "{x:0<8} {s}", .{ context.items[context.items.len - 1], line });
 
         if (pop_context) {
             _ = context.pop();
@@ -468,7 +457,7 @@ pub fn newContext(lines: [][]const u8, i: usize, ctx: u32) u32 {
     var in_comment: bool = false;
     while (ii < lines.len) : (ii += 1) {
         const line = lines[ii];
-        var com = in_comment;
+        const com = in_comment;
         if (!in_comment and std.mem.indexOf(u8, line, "/*") != null and std.mem.indexOf(u8, line, "*/") == null) {
             in_comment = true;
         } else if (in_comment and std.mem.indexOf(u8, line, "/*") == null and std.mem.indexOf(u8, line, "*/") != null) {

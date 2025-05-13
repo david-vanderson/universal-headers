@@ -1,6 +1,7 @@
 .{
-    .name = "universal-headers",
+    .name = .universal_headers,
     .version = "0.0.1",
-
-    .dependencies = .{ },
+    .fingerprint = 0xb8a12caa0ec708d5,
+    .paths = .{""},
+    .dependencies = .{},
 }
